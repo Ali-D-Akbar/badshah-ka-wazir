@@ -108,6 +108,7 @@ function startRound(code) {
   r.mukhbirId = ids.find(id => r.roles[id] === 'Mukhbir') || null;
 
   const badshahName = r.players.find(p => p.id === r.badshahId)?.name;
+  const wazirName   = r.players.find(p => p.id === r.wazirId)?.name;
   const chorName    = r.players.find(p => p.id === r.chorId)?.name;
 
   r.players.forEach(p => {
@@ -119,6 +120,7 @@ function startRound(code) {
       badshahId: r.badshahId,
       badshahName,
       wazirId: r.wazirId,
+      wazirName,
       secretChorName: r.roles[p.id] === 'Mukhbir' ? chorName : null,
       enableMukhbir: r.enableMukhbir,
       guessingTimer: r.guessingTimer,

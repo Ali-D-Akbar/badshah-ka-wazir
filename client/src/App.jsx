@@ -103,8 +103,8 @@ function HomeScreen({ onCreateRoom, onJoinRoom, error }) {
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const [mode, setMode] = useState(null);
-  const [rounds, setRounds] = useState(10);
-  const [maxPlayers, setMaxPlayers] = useState(8);
+  const [rounds, setRounds] = useState(5);
+  const [maxPlayers, setMaxPlayers] = useState(4);
   const [enableMukhbir, setEnableMukhbir] = useState(false);
   const [guessingTimer, setGuessingTimer] = useState(null);
 
@@ -222,6 +222,11 @@ function HomeScreen({ onCreateRoom, onJoinRoom, error }) {
         </div>
       </div>
 
+      <div className="card w-full p-4 text-sm text-gray-300 space-y-2 border border-yellow-900/40">
+        <p>🧠 <span className="text-yellow-400 font-semibold">Wazir</span> must find the <span className="text-red-400 font-semibold">Chor</span> — guess right for 70 pts, guess wrong and Chor escapes with 80.</p>
+        <p>👑 <span className="text-yellow-400 font-semibold">Badshah</span> &amp; <span className="text-green-400 font-semibold">Wazir</span> are revealed to all · everyone else stays hidden until caught.</p>
+      </div>
+
       <div className="card w-full p-4 text-xs text-gray-400 space-y-1">
         <p className="font-semibold text-gray-300 mb-1">Points:</p>
         <p>👑 Badshah → 70 always</p>
@@ -298,7 +303,7 @@ function LobbyScreen({ roomCode, players, isHost, myId, onStart, error, roomSett
 }
 
 // ─── Role Reveal ──────────────────────────────────────────────────────────────
-function RoleRevealScreen({ myRole, round, totalRounds, badshahName, myId, badshahId, countdown, secretChorName, enableMukhbir, guessingTimer }) {
+function RoleRevealScreen({ myRole, round, totalRounds, badshahName, wazirName, myId, badshahId, wazirId, countdown, secretChorName, enableMukhbir, guessingTimer }) {
   const cfg = ROLE_CONFIG[myRole] || ROLE_CONFIG.Sipahi;
   return (
     <div className="fade-in flex flex-col items-center gap-5 py-10 px-4 max-w-sm mx-auto pb-24">
@@ -318,12 +323,13 @@ function RoleRevealScreen({ myRole, round, totalRounds, badshahName, myId, badsh
         </div>
       </div>
 
-      {myId !== badshahId && (
-        <div className="card w-full p-4 text-center">
-          <p className="text-gray-400 text-sm">Known to all:</p>
-          <p className="text-yellow-400 font-bold mt-1">👑 Badshah: <span className="text-white">{badshahName}</span></p>
+      <div className="card w-full p-4">
+        <p className="text-gray-400 text-sm text-center mb-2">Known to all:</p>
+        <div className="flex flex-col gap-1">
+          <p className="text-yellow-400 font-bold text-center">👑 Badshah: <span className="text-white">{badshahName}</span></p>
+          <p className="text-green-400 font-bold text-center">🧠 Wazir: <span className="text-white">{wazirName}</span></p>
         </div>
-      )}
+      </div>
 
       {myRole === 'Mukhbir' && secretChorName && (
         <div className="card w-full p-4 text-center border border-purple-700">
@@ -568,9 +574,9 @@ export default function App() {
 
     socket.on('chat_message', (msg) => setChatMessages(prev => [...prev, msg]));
 
-    socket.on('role_assigned', ({ role, round, totalRounds, players, badshahId, badshahName, wazirId, secretChorName, enableMukhbir, guessingTimer }) => {
+    socket.on('role_assigned', ({ role, round, totalRounds, players, badshahId, badshahName, wazirId, wazirName, secretChorName, enableMukhbir, guessingTimer }) => {
       setMyRole(role); setRound(round); setPlayers(players);
-      setBadshahId(badshahId); setBadshahName(badshahName); setWazirId(wazirId);
+      setBadshahId(badshahId); setBadshahName(badshahName); setWazirId(wazirId); setWazirName(wazirName);
       setSecretChorName(secretChorName || null);
       setRoomSettings(s => ({ ...s, totalRounds, enableMukhbir, guessingTimer }));
       setError(''); setChatCollapsed(false);
@@ -621,7 +627,7 @@ export default function App() {
     <div className="min-h-screen">
       {screen === 'home' && <HomeScreen onCreateRoom={handleCreateRoom} onJoinRoom={handleJoinRoom} error={error} />}
       {screen === 'lobby' && <LobbyScreen roomCode={roomCode} players={players} isHost={isHost} myId={myId} onStart={handleStartGame} error={error} roomSettings={roomSettings} />}
-      {screen === 'role_reveal' && <RoleRevealScreen myRole={myRole} round={round} totalRounds={roomSettings.totalRounds} badshahName={badshahName} myId={myId} badshahId={badshahId} countdown={countdown} secretChorName={secretChorName} enableMukhbir={roomSettings.enableMukhbir} guessingTimer={roomSettings.guessingTimer} />}
+      {screen === 'role_reveal' && <RoleRevealScreen myRole={myRole} round={round} totalRounds={roomSettings.totalRounds} badshahName={badshahName} wazirName={wazirName} myId={myId} badshahId={badshahId} wazirId={wazirId} countdown={countdown} secretChorName={secretChorName} enableMukhbir={roomSettings.enableMukhbir} guessingTimer={roomSettings.guessingTimer} />}
       {screen === 'guessing' && <GuessingScreen myId={myId} wazirId={wazirId} wazirName={wazirName} badshahId={badshahId} players={guessingPlayers} myRole={myRole} onGuess={handleGuess} enableMukhbir={enableMukhbirRound} guessingTimer={roundGuessingTimer} />}
       {screen === 'round_result' && <RoundResultScreen roundResult={roundResult} scores={scores} isCorrect={isCorrect} timedOut={timedOut} guessedName={guessedName} chorName={chorName} wazirName={wazirName} mukhbirName={mukhbirName} round={currentRound} totalRounds={roomSettings.totalRounds} isHost={isHost} myId={myId} onNext={handleNextRound} />}
       {screen === 'game_over' && <GameOverScreen scores={finalScores} myId={myId} onPlayAgain={handlePlayAgain} />}
