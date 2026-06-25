@@ -518,6 +518,16 @@ function GameOverScreen({ scores, myId, onPlayAgain }) {
   );
 }
 
+// ─── Disconnect Banner ────────────────────────────────────────────────────────
+function DisconnectBanner({ onGoHome }) {
+  return (
+    <div className="fixed top-0 left-0 right-0 z-50 bg-red-900/95 border-b border-red-700 px-4 py-3 flex items-center justify-between">
+      <p className="text-red-200 text-sm">⚠️ Connection lost — server may have restarted. Start a new room.</p>
+      <button onClick={onGoHome} className="text-white text-xs bg-red-700 hover:bg-red-600 px-3 py-1 rounded-lg">← Home</button>
+    </div>
+  );
+}
+
 // ─── App ───────────────────────────────────────────────────────────────────────
 export default function App() {
   const [screen, setScreen] = useState('home');
@@ -526,7 +536,8 @@ export default function App() {
   const [players, setPlayers] = useState([]);
   const [isHost, setIsHost] = useState(false);
   const [error, setError] = useState('');
-  const [roomSettings, setRoomSettings] = useState({ totalRounds: 10, maxPlayers: 8, enableMukhbir: false, guessingTimer: null });
+  const [disconnected, setDisconnected] = useState(false);
+  const [roomSettings, setRoomSettings] = useState({ totalRounds: 5, maxPlayers: 4, enableMukhbir: false, guessingTimer: null });
 
   const [myRole, setMyRole] = useState('');
   const [round, setRound] = useState(0);
@@ -553,12 +564,32 @@ export default function App() {
 
   const [chatMessages, setChatMessages] = useState([]);
   const [chatCollapsed, setChatCollapsed] = useState(false);
+
   const countdownRef = useRef(null);
+  const guessingFallbackRef = useRef(null);
+  const hasConnectedRef = useRef(false);
+  const screenRef = useRef('home');
+  const guessingDataRef = useRef(null); // fallback data if guessing_phase event is lost
+
   const inGame = ['role_reveal', 'guessing', 'round_result', 'game_over'].includes(screen);
+
+  useEffect(() => { screenRef.current = screen; }, [screen]);
 
   useEffect(() => {
     socket.connect();
-    socket.on('connect', () => setMyId(socket.id));
+
+    socket.on('connect', () => {
+      setMyId(socket.id);
+      if (hasConnectedRef.current && screenRef.current !== 'home') {
+        // Reconnected mid-game — server restarted, room is gone
+        setDisconnected(true);
+      } else {
+        setDisconnected(false);
+      }
+      hasConnectedRef.current = true;
+    });
+
+    socket.on('disconnect', () => setDisconnected(true));
 
     socket.on('room_created', ({ code }) => { setRoomCode(code); setIsHost(true); setError(''); setScreen('lobby'); });
     socket.on('room_joined',  ({ code }) => { setRoomCode(code); setError(''); setScreen('lobby'); });
@@ -571,7 +602,6 @@ export default function App() {
 
     socket.on('error', ({ message }) => setError(message));
     socket.on('player_left', ({ name }) => setError(`${name} left`));
-
     socket.on('chat_message', (msg) => setChatMessages(prev => [...prev, msg]));
 
     socket.on('role_assigned', ({ role, round, totalRounds, players, badshahId, badshahName, wazirId, wazirName, secretChorName, enableMukhbir, guessingTimer }) => {
@@ -580,13 +610,34 @@ export default function App() {
       setSecretChorName(secretChorName || null);
       setRoomSettings(s => ({ ...s, totalRounds, enableMukhbir, guessingTimer }));
       setError(''); setChatCollapsed(false);
+
+      // Store fallback data in case guessing_phase event is dropped
+      guessingDataRef.current = { wazirId, wazirName, badshahId, players, enableMukhbir, guessingTimer };
+
       let t = 6; setCountdown(t);
       clearInterval(countdownRef.current);
-      countdownRef.current = setInterval(() => { t--; setCountdown(t); if (t <= 0) clearInterval(countdownRef.current); }, 1000);
+      countdownRef.current = setInterval(() => {
+        t--;
+        setCountdown(t);
+        if (t <= 0) clearInterval(countdownRef.current);
+      }, 1000);
+
+      // Fallback: if guessing_phase never arrives, self-transition after 7s
+      clearTimeout(guessingFallbackRef.current);
+      guessingFallbackRef.current = setTimeout(() => {
+        if (screenRef.current !== 'role_reveal') return;
+        const d = guessingDataRef.current;
+        if (!d) return;
+        setWazirId(d.wazirId); setWazirName(d.wazirName); setBadshahId(d.badshahId);
+        setGuessingPlayers(d.players); setEnableMukhbirRound(!!d.enableMukhbir); setRoundGuessingTimer(d.guessingTimer || null);
+        setScreen('guessing');
+      }, 7000);
+
       setScreen('role_reveal');
     });
 
     socket.on('guessing_phase', ({ wazirId, wazirName, badshahId, players, enableMukhbir, guessingTimer }) => {
+      clearTimeout(guessingFallbackRef.current);
       clearInterval(countdownRef.current);
       setWazirId(wazirId); setWazirName(wazirName); setBadshahId(badshahId);
       setGuessingPlayers(players); setEnableMukhbirRound(!!enableMukhbir); setRoundGuessingTimer(guessingTimer || null);
@@ -594,6 +645,7 @@ export default function App() {
     });
 
     socket.on('round_result', ({ roundResult, scores, isCorrect, timedOut, guessedName, chorName, wazirName, mukhbirName, round, totalRounds }) => {
+      clearTimeout(guessingFallbackRef.current);
       setRoundResult(roundResult); setScores(scores); setIsCorrect(isCorrect); setTimedOut(!!timedOut);
       setGuessedName(guessedName); setChorName(chorName); setWazirName(wazirName); setMukhbirName(mukhbirName || null);
       setCurrentRound(round); setRoomSettings(s => ({ ...s, totalRounds }));
@@ -603,10 +655,11 @@ export default function App() {
     socket.on('game_over', ({ scores }) => { setFinalScores(scores); setScreen('game_over'); });
 
     return () => {
-      ['connect','room_created','room_joined','room_update','error','player_left',
+      ['connect','disconnect','room_created','room_joined','room_update','error','player_left',
        'chat_message','role_assigned','guessing_phase','round_result','game_over'].forEach(e => socket.off(e));
       socket.disconnect();
       clearInterval(countdownRef.current);
+      clearTimeout(guessingFallbackRef.current);
     };
   }, []);
 
@@ -618,21 +671,25 @@ export default function App() {
   function handleGuess(guessId) { socket.emit('wazir_guess', { code: roomCode, guessId }); }
   function handleNextRound() { socket.emit('next_round', { code: roomCode }); }
   function handleSendMessage(text) { socket.emit('send_message', { code: roomCode, text }); }
-  function handlePlayAgain() {
-    setScreen('home'); setRoomCode(''); setPlayers([]); setIsHost(false);
-    setMyRole(''); setRound(0); setError(''); setChatMessages([]);
+  function handleGoHome() {
+    setDisconnected(false); setScreen('home'); setRoomCode(''); setPlayers([]);
+    setIsHost(false); setMyRole(''); setRound(0); setError(''); setChatMessages([]);
   }
+  function handlePlayAgain() { handleGoHome(); }
 
   return (
     <div className="min-h-screen">
-      {screen === 'home' && <HomeScreen onCreateRoom={handleCreateRoom} onJoinRoom={handleJoinRoom} error={error} />}
-      {screen === 'lobby' && <LobbyScreen roomCode={roomCode} players={players} isHost={isHost} myId={myId} onStart={handleStartGame} error={error} roomSettings={roomSettings} />}
-      {screen === 'role_reveal' && <RoleRevealScreen myRole={myRole} round={round} totalRounds={roomSettings.totalRounds} badshahName={badshahName} wazirName={wazirName} myId={myId} badshahId={badshahId} wazirId={wazirId} countdown={countdown} secretChorName={secretChorName} enableMukhbir={roomSettings.enableMukhbir} guessingTimer={roomSettings.guessingTimer} />}
-      {screen === 'guessing' && <GuessingScreen myId={myId} wazirId={wazirId} wazirName={wazirName} badshahId={badshahId} players={guessingPlayers} myRole={myRole} onGuess={handleGuess} enableMukhbir={enableMukhbirRound} guessingTimer={roundGuessingTimer} />}
-      {screen === 'round_result' && <RoundResultScreen roundResult={roundResult} scores={scores} isCorrect={isCorrect} timedOut={timedOut} guessedName={guessedName} chorName={chorName} wazirName={wazirName} mukhbirName={mukhbirName} round={currentRound} totalRounds={roomSettings.totalRounds} isHost={isHost} myId={myId} onNext={handleNextRound} />}
-      {screen === 'game_over' && <GameOverScreen scores={finalScores} myId={myId} onPlayAgain={handlePlayAgain} />}
+      {disconnected && <DisconnectBanner onGoHome={handleGoHome} />}
+      <div className={disconnected ? 'pt-14' : ''}>
+        {screen === 'home' && <HomeScreen onCreateRoom={handleCreateRoom} onJoinRoom={handleJoinRoom} error={error} />}
+        {screen === 'lobby' && <LobbyScreen roomCode={roomCode} players={players} isHost={isHost} myId={myId} onStart={handleStartGame} error={error} roomSettings={roomSettings} />}
+        {screen === 'role_reveal' && <RoleRevealScreen myRole={myRole} round={round} totalRounds={roomSettings.totalRounds} badshahName={badshahName} wazirName={wazirName} myId={myId} badshahId={badshahId} wazirId={wazirId} countdown={countdown} secretChorName={secretChorName} enableMukhbir={roomSettings.enableMukhbir} guessingTimer={roomSettings.guessingTimer} />}
+        {screen === 'guessing' && <GuessingScreen myId={myId} wazirId={wazirId} wazirName={wazirName} badshahId={badshahId} players={guessingPlayers} myRole={myRole} onGuess={handleGuess} enableMukhbir={enableMukhbirRound} guessingTimer={roundGuessingTimer} />}
+        {screen === 'round_result' && <RoundResultScreen roundResult={roundResult} scores={scores} isCorrect={isCorrect} timedOut={timedOut} guessedName={guessedName} chorName={chorName} wazirName={wazirName} mukhbirName={mukhbirName} round={currentRound} totalRounds={roomSettings.totalRounds} isHost={isHost} myId={myId} onNext={handleNextRound} />}
+        {screen === 'game_over' && <GameOverScreen scores={finalScores} myId={myId} onPlayAgain={handlePlayAgain} />}
+      </div>
 
-      {inGame && (
+      {inGame && !disconnected && (
         <ChatPanel
           messages={chatMessages}
           myId={myId}
