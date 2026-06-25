@@ -24,11 +24,10 @@ function genCode() {
   return Math.random().toString(36).substring(2, 8).toUpperCase();
 }
 
-// Roles: 1 Badshah, 1 Wazir, 1 Chor, optional 1 Mukhbir, rest Sipahi
 function assignRoles(playerIds, enableMukhbir) {
   const shuffled = [...playerIds].sort(() => Math.random() - 0.5);
-  const map = {};
   const n = shuffled.length;
+  const map = {};
   shuffled.forEach((id, i) => {
     if (i === 0) map[id] = 'Badshah';
     else if (i === 1) map[id] = 'Wazir';
@@ -39,16 +38,10 @@ function assignRoles(playerIds, enableMukhbir) {
   return map;
 }
 
-// Refined point system
-// Badshah: 70 always (was 100 — prevents runaway leads)
-// Wazir: 70 correct / 0 wrong
-// Sipahi: 55 if Chor caught / 35 if escaped (everyone has stake)
-// Mukhbir: allied with Chor — 0 caught / 80 escaped
-// Chor: 0 caught / 80 escaped (increased from 70)
 function calcPoints(role, wazirCorrect) {
   if (role === 'Badshah') return 70;
   if (role === 'Wazir') return wazirCorrect ? 70 : 0;
-  if (role === 'Sipahi') return wazirCorrect ? 55 : 35;
+  if (role === 'Sipahi') return 50;
   if (role === 'Mukhbir') return wazirCorrect ? 0 : 80;
   if (role === 'Chor') return wazirCorrect ? 0 : 80;
   return 0;
@@ -65,13 +58,47 @@ function publicRoom(code) {
     totalRounds: r.totalRounds,
     maxPlayers: r.maxPlayers,
     enableMukhbir: r.enableMukhbir,
+    guessingTimer: r.guessingTimer,
   };
+}
+
+function processGuess(code, guessId, timedOut) {
+  const r = rooms[code];
+  if (!r || r.state !== 'guessing') return;
+
+  if (r.guessingTimeout) { clearTimeout(r.guessingTimeout); r.guessingTimeout = null; }
+
+  const isCorrect = guessId === r.chorId;
+  const roundResult = {};
+
+  r.players.forEach(p => {
+    const pts = calcPoints(r.roles[p.id], isCorrect);
+    p.score += pts;
+    roundResult[p.id] = { role: r.roles[p.id], pts, name: p.name };
+  });
+
+  r.state = 'round_result';
+
+  io.to(code).emit('round_result', {
+    roundResult,
+    scores: r.players.map(p => ({ id: p.id, name: p.name, score: p.score })),
+    isCorrect,
+    timedOut: !!timedOut,
+    guessedName: r.players.find(p => p.id === guessId)?.name,
+    chorName:    r.players.find(p => p.id === r.chorId)?.name,
+    wazirName:   r.players.find(p => p.id === r.wazirId)?.name,
+    mukhbirName: r.mukhbirId ? r.players.find(p => p.id === r.mukhbirId)?.name : null,
+    chorId: r.chorId,
+    round: r.round,
+    totalRounds: r.totalRounds,
+  });
 }
 
 function startRound(code) {
   const r = rooms[code];
   r.round++;
   r.state = 'role_reveal';
+  if (r.guessingTimeout) { clearTimeout(r.guessingTimeout); r.guessingTimeout = null; }
 
   const ids = r.players.map(p => p.id);
   r.roles = assignRoles(ids, r.enableMukhbir);
@@ -84,19 +111,17 @@ function startRound(code) {
   const chorName    = r.players.find(p => p.id === r.chorId)?.name;
 
   r.players.forEach(p => {
-    const role = r.roles[p.id];
-    // Mukhbir secretly learns who Chor is
-    const secretChorName = (role === 'Mukhbir') ? chorName : null;
     io.to(p.id).emit('role_assigned', {
-      role,
+      role: r.roles[p.id],
       round: r.round,
       totalRounds: r.totalRounds,
       players: r.players.map(pl => ({ id: pl.id, name: pl.name, score: pl.score })),
       badshahId: r.badshahId,
       badshahName,
       wazirId: r.wazirId,
-      secretChorName, // only sent to Mukhbir
+      secretChorName: r.roles[p.id] === 'Mukhbir' ? chorName : null,
       enableMukhbir: r.enableMukhbir,
+      guessingTimer: r.guessingTimer,
     });
   });
 
@@ -110,14 +135,24 @@ function startRound(code) {
       badshahId: r.badshahId,
       players: r.players.map(p => ({ id: p.id, name: p.name })),
       enableMukhbir: r.enableMukhbir,
+      guessingTimer: r.guessingTimer,
     });
+
+    if (r.guessingTimer) {
+      r.guessingTimeout = setTimeout(() => {
+        if (!rooms[code] || r.state !== 'guessing') return;
+        // Timer expired: Wazir picks random non-Chor → Chor escapes
+        const wrongGuess = r.players.find(p => p.id !== r.chorId && p.id !== r.wazirId && p.id !== r.badshahId);
+        processGuess(code, wrongGuess?.id || r.players[0].id, true);
+      }, r.guessingTimer * 1000);
+    }
   }, ROLE_REVEAL_DURATION);
 }
 
 io.on('connection', (socket) => {
   console.log('+ connect', socket.id);
 
-  socket.on('create_room', ({ name, totalRounds, maxPlayers, enableMukhbir }) => {
+  socket.on('create_room', ({ name, totalRounds, maxPlayers, enableMukhbir, guessingTimer }) => {
     const code = genCode();
     rooms[code] = {
       code,
@@ -128,8 +163,11 @@ io.on('connection', (socket) => {
       totalRounds: Math.min(25, Math.max(5, totalRounds || 10)),
       maxPlayers: Math.min(MAX_PLAYERS_LIMIT, Math.max(MIN_PLAYERS, maxPlayers || 8)),
       enableMukhbir: !!enableMukhbir,
+      guessingTimer: guessingTimer || null,
       roles: {},
       wazirId: null, badshahId: null, chorId: null, mukhbirId: null,
+      guessingTimeout: null,
+      chat: [],
     };
     socket.join(code);
     socket.data.code = code;
@@ -142,7 +180,6 @@ io.on('connection', (socket) => {
     if (!r) return socket.emit('error', { message: 'Room not found' });
     if (r.players.length >= r.maxPlayers) return socket.emit('error', { message: `Room is full (max ${r.maxPlayers})` });
     if (r.state !== 'waiting') return socket.emit('error', { message: 'Game already started' });
-
     r.players.push({ id: socket.id, name, score: 0 });
     socket.join(code);
     socket.data.code = code;
@@ -160,36 +197,29 @@ io.on('connection', (socket) => {
   socket.on('wazir_guess', ({ code, guessId }) => {
     const r = rooms[code];
     if (!r || r.state !== 'guessing' || r.wazirId !== socket.id) return;
+    processGuess(code, guessId, false);
+  });
 
-    const isCorrect = guessId === r.chorId;
-    const roundResult = {};
-
-    r.players.forEach(p => {
-      const pts = calcPoints(r.roles[p.id], isCorrect);
-      p.score += pts;
-      roundResult[p.id] = { role: r.roles[p.id], pts, name: p.name };
-    });
-
-    r.state = 'round_result';
-
-    io.to(code).emit('round_result', {
-      roundResult,
-      scores: r.players.map(p => ({ id: p.id, name: p.name, score: p.score })),
-      isCorrect,
-      guessedName: r.players.find(p => p.id === guessId)?.name,
-      chorName:    r.players.find(p => p.id === r.chorId)?.name,
-      wazirName:   r.players.find(p => p.id === r.wazirId)?.name,
-      mukhbirName: r.mukhbirId ? r.players.find(p => p.id === r.mukhbirId)?.name : null,
-      chorId: r.chorId,
-      round: r.round,
-      totalRounds: r.totalRounds,
-    });
+  socket.on('send_message', ({ code, text }) => {
+    const r = rooms[code];
+    if (!r) return;
+    const player = r.players.find(p => p.id === socket.id);
+    if (!player || !text?.trim()) return;
+    const msg = {
+      id: Date.now() + Math.random(),
+      playerId: socket.id,
+      playerName: player.name,
+      text: text.trim().slice(0, 200),
+      timestamp: Date.now(),
+    };
+    r.chat.push(msg);
+    if (r.chat.length > 100) r.chat.shift();
+    io.to(code).emit('chat_message', msg);
   });
 
   socket.on('next_round', ({ code }) => {
     const r = rooms[code];
     if (!r || r.host !== socket.id || r.state !== 'round_result') return;
-
     if (r.round >= r.totalRounds) {
       r.state = 'game_over';
       io.to(code).emit('game_over', {
@@ -207,11 +237,8 @@ io.on('connection', (socket) => {
     const r = rooms[code];
     const player = r.players.find(p => p.id === socket.id);
     if (!player) return;
-
     const name = player.name;
     r.players = r.players.filter(p => p.id !== socket.id);
-    console.log('- disconnect', name, 'from', code);
-
     if (r.players.length === 0) { delete rooms[code]; return; }
     if (r.host === socket.id) r.host = r.players[0].id;
     io.to(code).emit('room_update', publicRoom(code));
