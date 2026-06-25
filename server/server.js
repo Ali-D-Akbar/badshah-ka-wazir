@@ -228,7 +228,6 @@ io.on('connection', (socket) => {
     r.roles = {};
     r.wazirId = null; r.badshahId = null; r.chorId = null; r.mukhbirId = null;
     r.players.forEach(p => { p.score = 0; });
-    r.chat = [];
     io.to(code).emit('room_replay');
     io.to(code).emit('room_update', publicRoom(code));
   });

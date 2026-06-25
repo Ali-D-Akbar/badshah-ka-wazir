@@ -576,7 +576,7 @@ export default function App() {
   const screenRef = useRef('home');
   const guessingDataRef = useRef(null); // fallback data if guessing_phase event is lost
 
-  const inGame = ['role_reveal', 'guessing', 'round_result', 'game_over'].includes(screen);
+  const inGame = ['lobby', 'role_reveal', 'guessing', 'round_result', 'game_over'].includes(screen);
 
   useEffect(() => { screenRef.current = screen; }, [screen]);
 
@@ -660,7 +660,7 @@ export default function App() {
     socket.on('game_over', ({ scores }) => { setFinalScores(scores); setScreen('game_over'); });
 
     socket.on('room_replay', () => {
-      setChatMessages([]); setMyRole(''); setRound(0); setError('');
+      setMyRole(''); setRound(0); setError('');
       setScreen('lobby');
     });
 
