@@ -2,14 +2,15 @@ import { useState, useEffect, useRef } from 'react';
 import { socket } from './socket';
 
 const ROLE_CONFIG = {
-  Badshah: { emoji: '👑', color: 'text-yellow-400', bg: 'bg-yellow-900/40', border: 'border-yellow-600', urdu: 'بادشاہ', pts: '100 pts always' },
-  Wazir:   { emoji: '🧠', color: 'text-green-400',  bg: 'bg-green-900/40',  border: 'border-green-600',  urdu: 'وزیر',   pts: '70 if correct, 0 if wrong' },
-  Sipahi:  { emoji: '⚔️', color: 'text-blue-400',   bg: 'bg-blue-900/40',   border: 'border-blue-600',   urdu: 'سپاہی',  pts: '50 pts always' },
-  Chor:    { emoji: '🦹', color: 'text-red-400',    bg: 'bg-red-900/40',    border: 'border-red-600',    urdu: 'چور',    pts: '0 if caught, 70 if not' },
+  Badshah: { emoji: '👑', color: 'text-yellow-400', border: 'border-yellow-600', urdu: 'بادشاہ', pts: '70 pts always' },
+  Wazir:   { emoji: '🧠', color: 'text-green-400',  border: 'border-green-600',  urdu: 'وزیر',   pts: '70 correct / 0 wrong' },
+  Sipahi:  { emoji: '⚔️', color: 'text-blue-400',   border: 'border-blue-600',   urdu: 'سپاہی',  pts: '55 caught / 35 escaped' },
+  Mukhbir: { emoji: '🕵️', color: 'text-purple-400', border: 'border-purple-600', urdu: 'مخبر',   pts: '80 if Chor escapes / 0 caught' },
+  Chor:    { emoji: '🦹', color: 'text-red-400',    border: 'border-red-600',    urdu: 'چور',    pts: '80 escaped / 0 caught' },
 };
 
 const MIN_PLAYERS = 4;
-const MAX_PLAYERS = 8;
+const MAX_PLAYERS_LIMIT = 12;
 
 function Countdown({ seconds }) {
   return (
@@ -20,18 +21,21 @@ function Countdown({ seconds }) {
   );
 }
 
-// ─── Home ────────────────────────────────────────────────────────────────────
+// ─── Home ─────────────────────────────────────────────────────────────────────
 function HomeScreen({ onCreateRoom, onJoinRoom, error }) {
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
-  const [mode, setMode] = useState(null); // 'create' | 'join'
+  const [mode, setMode] = useState(null);
+  const [rounds, setRounds] = useState(10);
+  const [maxPlayers, setMaxPlayers] = useState(8);
+  const [enableMukhbir, setEnableMukhbir] = useState(false);
 
   return (
-    <div className="fade-in flex flex-col items-center gap-8 py-12 px-4 max-w-sm mx-auto">
+    <div className="fade-in flex flex-col items-center gap-6 py-10 px-4 max-w-sm mx-auto">
       <div className="text-center">
         <div className="text-6xl mb-3">👑</div>
         <h1 className="text-3xl font-bold text-yellow-400">بادشاہ کا وزیر</h1>
-        <p className="text-gray-400 mt-1 text-sm">Badshah ka Wazir · 4 Players · 10 Rounds</p>
+        <p className="text-gray-400 mt-1 text-sm">4–{MAX_PLAYERS_LIMIT} Players · 5–25 Rounds</p>
       </div>
 
       <div className="card w-full p-6 flex flex-col gap-4">
@@ -53,16 +57,59 @@ function HomeScreen({ onCreateRoom, onJoinRoom, error }) {
           />
         )}
 
+        {mode === 'create' && (
+          <div className="flex flex-col gap-3 pt-1 border-t border-gray-700">
+            <p className="text-gray-400 text-xs uppercase tracking-widest">Room Settings</p>
+
+            <div className="flex items-center justify-between">
+              <label className="text-sm text-gray-300">Rounds</label>
+              <div className="flex items-center gap-2">
+                <button className="w-7 h-7 rounded-full bg-gray-700 text-white text-sm hover:bg-gray-600"
+                  onClick={() => setRounds(r => Math.max(5, r - 5))}>−</button>
+                <span className="w-8 text-center font-bold text-yellow-400">{rounds}</span>
+                <button className="w-7 h-7 rounded-full bg-gray-700 text-white text-sm hover:bg-gray-600"
+                  onClick={() => setRounds(r => Math.min(25, r + 5))}>+</button>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <label className="text-sm text-gray-300">Max Players</label>
+              <div className="flex items-center gap-2">
+                <button className="w-7 h-7 rounded-full bg-gray-700 text-white text-sm hover:bg-gray-600"
+                  onClick={() => setMaxPlayers(p => Math.max(4, p - 1))}>−</button>
+                <span className="w-8 text-center font-bold text-yellow-400">{maxPlayers}</span>
+                <button className="w-7 h-7 rounded-full bg-gray-700 text-white text-sm hover:bg-gray-600"
+                  onClick={() => setMaxPlayers(p => Math.min(MAX_PLAYERS_LIMIT, p + 1))}>+</button>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setEnableMukhbir(v => !v)}
+              className={`flex items-center justify-between p-3 rounded-xl border transition-all ${enableMukhbir ? 'border-purple-600 bg-purple-900/30' : 'border-gray-700 bg-transparent'}`}
+            >
+              <div className="text-left">
+                <p className="text-sm font-semibold text-gray-200">🕵️ Mukhbir (Spy) Role</p>
+                <p className="text-xs text-gray-500">For 6+ players. Spy secretly aids Chor.</p>
+              </div>
+              <span className={`text-xs font-bold px-2 py-1 rounded-full ${enableMukhbir ? 'bg-purple-600 text-white' : 'bg-gray-700 text-gray-400'}`}>
+                {enableMukhbir ? 'ON' : 'OFF'}
+              </span>
+            </button>
+          </div>
+        )}
+
         {error && <p className="text-red-400 text-sm text-center">{error}</p>}
 
-        <div className="flex flex-col gap-3 mt-2">
+        <div className="flex flex-col gap-3 mt-1">
           {mode !== 'join' && (
             <button
               className="btn-gold w-full text-lg"
               disabled={!name.trim()}
-              onClick={() => mode === 'create' ? onCreateRoom(name.trim()) : setMode('create')}
+              onClick={() => mode === 'create'
+                ? onCreateRoom(name.trim(), rounds, maxPlayers, enableMukhbir)
+                : setMode('create')}
             >
-              {mode === 'create' ? 'Create Room' : '+ Create Room'}
+              {mode === 'create' ? 'Create Room →' : '+ Create Room'}
             </button>
           )}
           {mode !== 'create' && (
@@ -74,23 +121,26 @@ function HomeScreen({ onCreateRoom, onJoinRoom, error }) {
               {mode === 'join' ? 'Join →' : 'Join Room'}
             </button>
           )}
-          {mode && (
-            <button className="text-gray-500 text-sm" onClick={() => setMode(null)}>← Back</button>
-          )}
+          {mode && <button className="text-gray-500 text-sm" onClick={() => setMode(null)}>← Back</button>}
         </div>
       </div>
 
-      <div className="text-center text-gray-500 text-xs space-y-1">
-        <p>👑 Badshah · 🧠 Wazir · ⚔️ Sipahi · 🦹 Chor</p>
-        <p>Wazir must identify the Chor each round</p>
+      <div className="card w-full p-4 text-xs text-gray-400 space-y-1">
+        <p className="font-semibold text-gray-300 mb-1">Points (refined):</p>
+        <p>👑 Badshah → 70 (always)</p>
+        <p>🧠 Wazir → 70 correct / 0 wrong</p>
+        <p>⚔️ Sipahi → 55 caught / 35 escaped</p>
+        <p>🕵️ Mukhbir → 80 escaped / 0 caught <span className="text-purple-400">(spy for Chor)</span></p>
+        <p>🦹 Chor → 80 escaped / 0 caught</p>
       </div>
     </div>
   );
 }
 
-// ─── Lobby ───────────────────────────────────────────────────────────────────
-function LobbyScreen({ roomCode, players, isHost, myId, onStart, error }) {
+// ─── Lobby ────────────────────────────────────────────────────────────────────
+function LobbyScreen({ roomCode, players, isHost, myId, onStart, error, roomSettings }) {
   const [copied, setCopied] = useState(false);
+  const { totalRounds, maxPlayers, enableMukhbir } = roomSettings || {};
 
   function copy() {
     navigator.clipboard.writeText(roomCode);
@@ -99,20 +149,23 @@ function LobbyScreen({ roomCode, players, isHost, myId, onStart, error }) {
   }
 
   return (
-    <div className="fade-in flex flex-col items-center gap-6 py-10 px-4 max-w-sm mx-auto">
+    <div className="fade-in flex flex-col items-center gap-5 py-8 px-4 max-w-sm mx-auto">
       <div className="text-center">
         <p className="text-gray-400 text-sm uppercase tracking-widest mb-1">Room Code</p>
-        <button
-          onClick={copy}
-          className="text-5xl font-bold text-yellow-400 tracking-widest hover:text-yellow-300 transition-colors"
-        >
+        <button onClick={copy} className="text-5xl font-bold text-yellow-400 tracking-widest hover:text-yellow-300 transition-colors">
           {roomCode}
         </button>
         <p className="text-gray-500 text-xs mt-1">{copied ? '✓ Copied!' : 'tap to copy'}</p>
       </div>
 
+      <div className="flex gap-3 text-xs">
+        <span className="card px-3 py-1 text-yellow-400">{totalRounds} rounds</span>
+        <span className="card px-3 py-1 text-blue-400">max {maxPlayers} players</span>
+        {enableMukhbir && <span className="card px-3 py-1 text-purple-400">🕵️ Mukhbir ON</span>}
+      </div>
+
       <div className="card w-full p-4">
-        <p className="text-gray-400 text-xs uppercase tracking-widest mb-3">Players ({players.length}/{MAX_PLAYERS})</p>
+        <p className="text-gray-400 text-xs uppercase tracking-widest mb-3">Players ({players.length}/{maxPlayers})</p>
         <div className="flex flex-col gap-2">
           {players.map((p, i) => (
             <div key={p.id} className="flex items-center gap-3">
@@ -132,40 +185,27 @@ function LobbyScreen({ roomCode, players, isHost, myId, onStart, error }) {
         </div>
       </div>
 
-      <p className="text-gray-500 text-xs text-center">{MIN_PLAYERS}–{MAX_PLAYERS} players · extra players become Sipahi ⚔️</p>
+      <p className="text-gray-500 text-xs text-center">Game starts with {MIN_PLAYERS}+ players · extra players become Sipahi</p>
 
       {error && <p className="text-red-400 text-sm">{error}</p>}
 
       {isHost ? (
-        <button
-          className="btn-gold w-full text-lg pulse-gold"
-          disabled={players.length < MIN_PLAYERS}
-          onClick={onStart}
-        >
+        <button className="btn-gold w-full text-lg pulse-gold" disabled={players.length < MIN_PLAYERS} onClick={onStart}>
           {players.length >= MIN_PLAYERS ? `Start Game 🎮 (${players.length} players)` : `Need ${MIN_PLAYERS - players.length} more…`}
         </button>
       ) : (
         <p className="text-gray-400 text-sm">Waiting for host to start…</p>
       )}
-
-      <div className="card w-full p-4 text-xs text-gray-400 space-y-1">
-        <p className="font-semibold text-gray-300 mb-2">How to play:</p>
-        <p>👑 Badshah → 100 pts (always safe)</p>
-        <p>🧠 Wazir → guesses Chor. Correct: 70 pts. Wrong: 0 pts</p>
-        <p>⚔️ Sipahi → 50 pts (always safe)</p>
-        <p>🦹 Chor → 0 if caught, 70 if Wazir wrong</p>
-      </div>
     </div>
   );
 }
 
-// ─── Role Reveal ─────────────────────────────────────────────────────────────
-function RoleRevealScreen({ myRole, round, totalRounds, badshahName, myId, badshahId, countdown }) {
-  const cfg = ROLE_CONFIG[myRole];
-  const isBadshah = myId === badshahId;
+// ─── Role Reveal ──────────────────────────────────────────────────────────────
+function RoleRevealScreen({ myRole, round, totalRounds, badshahName, myId, badshahId, countdown, secretChorName, enableMukhbir }) {
+  const cfg = ROLE_CONFIG[myRole] || ROLE_CONFIG.Sipahi;
 
   return (
-    <div className="fade-in flex flex-col items-center gap-6 py-10 px-4 max-w-sm mx-auto">
+    <div className="fade-in flex flex-col items-center gap-5 py-10 px-4 max-w-sm mx-auto">
       <div className="flex justify-between w-full text-sm text-gray-400">
         <span>Round {round} of {totalRounds}</span>
         <Countdown seconds={countdown} />
@@ -177,40 +217,47 @@ function RoleRevealScreen({ myRole, round, totalRounds, badshahName, myId, badsh
         <span className="text-8xl">{cfg.emoji}</span>
         <div className="text-center">
           <p className={`text-4xl font-bold ${cfg.color}`}>{myRole}</p>
-          <p className={`text-2xl font-urdu ${cfg.color} mt-1`}>{cfg.urdu}</p>
+          <p className={`text-2xl ${cfg.color} mt-1`}>{cfg.urdu}</p>
           <p className="text-gray-400 text-sm mt-2">{cfg.pts}</p>
         </div>
       </div>
 
-      {!isBadshah && (
+      {myId !== badshahId && (
         <div className="card w-full p-4 text-center">
           <p className="text-gray-400 text-sm">Known to all:</p>
-          <p className="text-yellow-400 font-bold mt-1">👑 Badshah this round: <span className="text-white">{badshahName}</span></p>
+          <p className="text-yellow-400 font-bold mt-1">👑 Badshah: <span className="text-white">{badshahName}</span></p>
         </div>
       )}
 
+      {myRole === 'Mukhbir' && secretChorName && (
+        <div className="card w-full p-4 text-center border border-purple-700">
+          <p className="text-purple-400 font-semibold">You are the Mukhbir! 🕵️</p>
+          <p className="text-gray-300 text-sm mt-1">The Chor is: <span className="text-red-400 font-bold">{secretChorName}</span></p>
+          <p className="text-gray-500 text-xs mt-1">Help them escape — but don't get caught helping.</p>
+        </div>
+      )}
       {myRole === 'Wazir' && (
         <div className="card w-full p-4 text-center border border-green-800">
-          <p className="text-green-400 font-semibold text-sm">You are the Wazir!</p>
-          <p className="text-gray-400 text-xs mt-1">You must pick who is the Chor from the non-Badshah players.</p>
+          <p className="text-green-400 font-semibold">You are the Wazir! 🧠</p>
+          <p className="text-gray-400 text-xs mt-1">
+            Identify the Chor.{enableMukhbir ? ' Watch out — a Mukhbir may be misleading you.' : ''}
+          </p>
         </div>
       )}
-
       {myRole === 'Chor' && (
         <div className="card w-full p-4 text-center border border-red-800">
-          <p className="text-red-400 font-semibold text-sm">You are the Chor! 🤫</p>
-          <p className="text-gray-400 text-xs mt-1">Try not to look suspicious…</p>
+          <p className="text-red-400 font-semibold">You are the Chor! 🦹</p>
+          <p className="text-gray-400 text-xs mt-1">Stay calm. Don't react. {enableMukhbir ? 'A Mukhbir secretly has your back.' : ''}</p>
         </div>
       )}
     </div>
   );
 }
 
-// ─── Guessing Phase ──────────────────────────────────────────────────────────
-function GuessingScreen({ myId, wazirId, wazirName, badshahId, players, myRole, onGuess }) {
+// ─── Guessing Phase ───────────────────────────────────────────────────────────
+function GuessingScreen({ myId, wazirId, wazirName, badshahId, players, myRole, onGuess, enableMukhbir }) {
   const isWazir = myId === wazirId;
-  const cfg = ROLE_CONFIG[myRole];
-
+  const cfg = ROLE_CONFIG[myRole] || ROLE_CONFIG.Sipahi;
   const guessTargets = players.filter(p => p.id !== badshahId && p.id !== wazirId);
 
   if (isWazir) {
@@ -220,11 +267,8 @@ function GuessingScreen({ myId, wazirId, wazirName, badshahId, players, myRole, 
           <span className="text-5xl">🧠</span>
           <h2 className="text-2xl font-bold text-green-400 mt-2">You are Wazir</h2>
           <p className="text-gray-300 mt-1">Who is the <span className="text-red-400 font-bold">Chor</span>?</p>
+          {enableMukhbir && <p className="text-purple-400 text-xs mt-1">⚠️ A Mukhbir may be among them, misleading you</p>}
         </div>
-
-        <p className="text-gray-400 text-sm text-center">
-          Pick who you think is the Chor. Others are Sipahi.
-        </p>
 
         <div className="flex flex-col gap-3 w-full">
           {guessTargets.map(p => (
@@ -252,23 +296,20 @@ function GuessingScreen({ myId, wazirId, wazirName, badshahId, players, myRole, 
         <div className="text-5xl mb-2">⏳</div>
         <h2 className="text-xl font-bold text-gray-300">Wazir is deciding…</h2>
         <p className="text-green-400 font-semibold mt-1">{wazirName}</p>
-        <p className="text-gray-500 text-sm mt-1">is choosing who the Chor is</p>
       </div>
-
       <div className={`card w-full p-6 text-center border-2 ${cfg.border}`}>
         <p className="text-gray-400 text-sm mb-2">Your role:</p>
         <span className="text-5xl">{cfg.emoji}</span>
         <p className={`text-2xl font-bold ${cfg.color} mt-2`}>{myRole}</p>
-        {myRole === 'Chor' && (
-          <p className="text-red-400 text-xs mt-2 italic">Stay calm. Don't react. 🤫</p>
-        )}
+        {myRole === 'Chor' && <p className="text-red-400 text-xs mt-2 italic">Stay calm. 🤫</p>}
+        {myRole === 'Mukhbir' && <p className="text-purple-400 text-xs mt-2 italic">Act like Sipahi. Help Chor escape. 🕵️</p>}
       </div>
     </div>
   );
 }
 
 // ─── Round Result ─────────────────────────────────────────────────────────────
-function RoundResultScreen({ roundResult, scores, isCorrect, guessedName, chorName, wazirName, chorId, round, totalRounds, isHost, myId, onNext }) {
+function RoundResultScreen({ roundResult, scores, isCorrect, guessedName, chorName, wazirName, mukhbirName, round, totalRounds, isHost, myId, onNext }) {
   return (
     <div className="fade-in flex flex-col items-center gap-5 py-8 px-4 max-w-sm mx-auto">
       <div className="text-center">
@@ -278,16 +319,22 @@ function RoundResultScreen({ roundResult, scores, isCorrect, guessedName, chorNa
         </div>
         <p className="text-gray-300 mt-2 text-sm">
           {isCorrect
-            ? `${wazirName} correctly identified ${chorName} as the Chor!`
-            : `${wazirName} guessed ${guessedName}, but ${chorName} was the Chor — escapes!`}
+            ? `${wazirName} caught ${chorName}!`
+            : `${wazirName} guessed ${guessedName} — ${chorName} escapes!`}
         </p>
+        {mukhbirName && !isCorrect && (
+          <p className="text-purple-400 text-xs mt-1">🕵️ {mukhbirName} (Mukhbir) helped Chor escape</p>
+        )}
+        {mukhbirName && isCorrect && (
+          <p className="text-purple-400 text-xs mt-1">🕵️ {mukhbirName} (Mukhbir) failed to protect Chor</p>
+        )}
       </div>
 
       <div className="card w-full p-4">
         <p className="text-gray-400 text-xs uppercase tracking-widest mb-3">Roles this round</p>
         <div className="flex flex-col gap-2">
           {Object.values(roundResult).map(({ name, role, pts }) => {
-            const cfg = ROLE_CONFIG[role];
+            const cfg = ROLE_CONFIG[role] || ROLE_CONFIG.Sipahi;
             return (
               <div key={name} className="flex items-center gap-3">
                 <span className="text-xl">{cfg.emoji}</span>
@@ -320,16 +367,15 @@ function RoundResultScreen({ roundResult, scores, isCorrect, guessedName, chorNa
           {round >= totalRounds ? 'See Final Results 🏆' : 'Next Round →'}
         </button>
       ) : (
-        <p className="text-gray-400 text-sm">Waiting for host to continue…</p>
+        <p className="text-gray-400 text-sm">Waiting for host…</p>
       )}
     </div>
   );
 }
 
-// ─── Game Over ────────────────────────────────────────────────────────────────
+// ─── Game Over ─────────────────────────────────────────────────────────────────
 function GameOverScreen({ scores, myId, onPlayAgain }) {
-  const medals = ['🥇', '🥈', '🥉', '4️⃣'];
-
+  const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟', '🔟', '🔟'];
   return (
     <div className="fade-in flex flex-col items-center gap-6 py-12 px-4 max-w-sm mx-auto">
       <div className="text-center">
@@ -337,15 +383,11 @@ function GameOverScreen({ scores, myId, onPlayAgain }) {
         <h1 className="text-3xl font-bold text-yellow-400">Game Over!</h1>
         <p className="text-gray-400 mt-1">Final Rankings</p>
       </div>
-
       <div className="card w-full p-4">
         <div className="flex flex-col gap-3">
           {scores.map((p, i) => (
-            <div
-              key={p.id}
-              className={`flex items-center gap-3 p-3 rounded-xl ${i === 0 ? 'bg-yellow-900/30 border border-yellow-700' : ''}`}
-            >
-              <span className="text-2xl">{medals[i]}</span>
+            <div key={p.id} className={`flex items-center gap-3 p-3 rounded-xl ${i === 0 ? 'bg-yellow-900/30 border border-yellow-700' : ''}`}>
+              <span className="text-2xl">{medals[i] || '·'}</span>
               <span className={`flex-1 font-bold text-lg ${p.id === myId ? 'text-yellow-400' : 'text-gray-200'}`}>
                 {p.name} {p.id === myId && '(you)'}
               </span>
@@ -354,15 +396,12 @@ function GameOverScreen({ scores, myId, onPlayAgain }) {
           ))}
         </div>
       </div>
-
-      <button className="btn-gold w-full text-lg" onClick={onPlayAgain}>
-        Play Again 🔄
-      </button>
+      <button className="btn-gold w-full text-lg" onClick={onPlayAgain}>Play Again 🔄</button>
     </div>
   );
 }
 
-// ─── App ──────────────────────────────────────────────────────────────────────
+// ─── App ───────────────────────────────────────────────────────────────────────
 export default function App() {
   const [screen, setScreen] = useState('home');
   const [myId, setMyId] = useState('');
@@ -370,212 +409,116 @@ export default function App() {
   const [players, setPlayers] = useState([]);
   const [isHost, setIsHost] = useState(false);
   const [error, setError] = useState('');
+  const [roomSettings, setRoomSettings] = useState({ totalRounds: 10, maxPlayers: 8, enableMukhbir: false });
 
-  // Round state
   const [myRole, setMyRole] = useState('');
   const [round, setRound] = useState(0);
   const [badshahId, setBadshahId] = useState('');
   const [badshahName, setBadshahName] = useState('');
   const [wazirId, setWazirId] = useState('');
   const [wazirName, setWazirName] = useState('');
+  const [secretChorName, setSecretChorName] = useState(null);
   const [countdown, setCountdown] = useState(6);
 
-  // Guessing state
   const [guessingPlayers, setGuessingPlayers] = useState([]);
+  const [enableMukhbirRound, setEnableMukhbirRound] = useState(false);
 
-  // Result state
   const [roundResult, setRoundResult] = useState(null);
   const [scores, setScores] = useState([]);
   const [isCorrect, setIsCorrect] = useState(false);
   const [guessedName, setGuessedName] = useState('');
   const [chorName, setChorName] = useState('');
-  const [chorId, setChorId] = useState('');
+  const [mukhbirName, setMukhbirName] = useState(null);
   const [currentRound, setCurrentRound] = useState(0);
-  const [totalRounds] = useState(10);
 
-  // Game over
   const [finalScores, setFinalScores] = useState([]);
-
   const countdownRef = useRef(null);
 
   useEffect(() => {
     socket.connect();
     socket.on('connect', () => setMyId(socket.id));
 
-    socket.on('room_created', ({ code }) => {
-      setRoomCode(code);
-      setIsHost(true);
-      setError('');
-      setScreen('lobby');
-    });
-
-    socket.on('room_joined', ({ code }) => {
-      setRoomCode(code);
-      setError('');
-      setScreen('lobby');
-    });
+    socket.on('room_created', ({ code }) => { setRoomCode(code); setIsHost(true); setError(''); setScreen('lobby'); });
+    socket.on('room_joined',  ({ code }) => { setRoomCode(code); setError(''); setScreen('lobby'); });
 
     socket.on('room_update', (room) => {
       setPlayers(room.players);
       setIsHost(room.host === socket.id);
+      setRoomSettings({ totalRounds: room.totalRounds, maxPlayers: room.maxPlayers, enableMukhbir: room.enableMukhbir });
     });
 
     socket.on('error', ({ message }) => setError(message));
+    socket.on('player_left', ({ name }) => setError(`${name} left the game`));
 
-    socket.on('player_left', ({ name }) => {
-      setError(`${name} left the game`);
-    });
-
-    socket.on('role_assigned', ({ role, round, totalRounds, players, badshahId, badshahName, wazirId }) => {
+    socket.on('role_assigned', ({ role, round, totalRounds, players, badshahId, badshahName, wazirId, secretChorName, enableMukhbir }) => {
       setMyRole(role);
       setRound(round);
       setPlayers(players);
       setBadshahId(badshahId);
       setBadshahName(badshahName);
       setWazirId(wazirId);
+      setSecretChorName(secretChorName || null);
+      setRoomSettings(s => ({ ...s, totalRounds, enableMukhbir }));
       setError('');
-
-      // Start countdown
       let t = 6;
       setCountdown(t);
       clearInterval(countdownRef.current);
-      countdownRef.current = setInterval(() => {
-        t--;
-        setCountdown(t);
-        if (t <= 0) clearInterval(countdownRef.current);
-      }, 1000);
-
+      countdownRef.current = setInterval(() => { t--; setCountdown(t); if (t <= 0) clearInterval(countdownRef.current); }, 1000);
       setScreen('role_reveal');
     });
 
-    socket.on('guessing_phase', ({ wazirId, wazirName, badshahId, players }) => {
+    socket.on('guessing_phase', ({ wazirId, wazirName, badshahId, players, enableMukhbir }) => {
       clearInterval(countdownRef.current);
       setWazirId(wazirId);
       setWazirName(wazirName);
       setBadshahId(badshahId);
       setGuessingPlayers(players);
+      setEnableMukhbirRound(!!enableMukhbir);
       setScreen('guessing');
     });
 
-    socket.on('round_result', ({ roundResult, scores, isCorrect, guessedName, chorName, wazirName, chorId, round, totalRounds }) => {
+    socket.on('round_result', ({ roundResult, scores, isCorrect, guessedName, chorName, wazirName, mukhbirName, round, totalRounds }) => {
       setRoundResult(roundResult);
       setScores(scores);
       setIsCorrect(isCorrect);
       setGuessedName(guessedName);
       setChorName(chorName);
       setWazirName(wazirName);
-      setChorId(chorId);
+      setMukhbirName(mukhbirName || null);
       setCurrentRound(round);
+      setRoomSettings(s => ({ ...s, totalRounds }));
       setScreen('round_result');
     });
 
-    socket.on('game_over', ({ scores }) => {
-      setFinalScores(scores);
-      setScreen('game_over');
-    });
+    socket.on('game_over', ({ scores }) => { setFinalScores(scores); setScreen('game_over'); });
 
     return () => {
-      socket.off('connect');
-      socket.off('room_created');
-      socket.off('room_joined');
-      socket.off('room_update');
-      socket.off('error');
-      socket.off('player_left');
-      socket.off('role_assigned');
-      socket.off('guessing_phase');
-      socket.off('round_result');
-      socket.off('game_over');
+      ['connect','room_created','room_joined','room_update','error','player_left',
+       'role_assigned','guessing_phase','round_result','game_over'].forEach(e => socket.off(e));
       socket.disconnect();
       clearInterval(countdownRef.current);
     };
   }, []);
 
-  function handleCreateRoom(name) {
-    socket.emit('create_room', { name });
+  function handleCreateRoom(name, rounds, maxPlayers, enableMukhbir) {
+    socket.emit('create_room', { name, totalRounds: rounds, maxPlayers, enableMukhbir });
   }
-
-  function handleJoinRoom(name, code) {
-    socket.emit('join_room', { name, code });
-  }
-
-  function handleStartGame() {
-    socket.emit('start_game', { code: roomCode });
-  }
-
-  function handleGuess(guessId) {
-    socket.emit('wazir_guess', { code: roomCode, guessId });
-  }
-
-  function handleNextRound() {
-    socket.emit('next_round', { code: roomCode });
-  }
-
+  function handleJoinRoom(name, code) { socket.emit('join_room', { name, code }); }
+  function handleStartGame() { socket.emit('start_game', { code: roomCode }); }
+  function handleGuess(guessId) { socket.emit('wazir_guess', { code: roomCode, guessId }); }
+  function handleNextRound() { socket.emit('next_round', { code: roomCode }); }
   function handlePlayAgain() {
-    setScreen('home');
-    setRoomCode('');
-    setPlayers([]);
-    setIsHost(false);
-    setMyRole('');
-    setRound(0);
-    setError('');
+    setScreen('home'); setRoomCode(''); setPlayers([]); setIsHost(false); setMyRole(''); setRound(0); setError('');
   }
 
   return (
     <div className="min-h-screen">
-      {screen === 'home' && (
-        <HomeScreen onCreateRoom={handleCreateRoom} onJoinRoom={handleJoinRoom} error={error} />
-      )}
-      {screen === 'lobby' && (
-        <LobbyScreen
-          roomCode={roomCode}
-          players={players}
-          isHost={isHost}
-          myId={myId}
-          onStart={handleStartGame}
-          error={error}
-        />
-      )}
-      {screen === 'role_reveal' && (
-        <RoleRevealScreen
-          myRole={myRole}
-          round={round}
-          totalRounds={totalRounds}
-          badshahName={badshahName}
-          myId={myId}
-          badshahId={badshahId}
-          countdown={countdown}
-        />
-      )}
-      {screen === 'guessing' && (
-        <GuessingScreen
-          myId={myId}
-          wazirId={wazirId}
-          wazirName={wazirName}
-          badshahId={badshahId}
-          players={guessingPlayers}
-          myRole={myRole}
-          onGuess={handleGuess}
-        />
-      )}
-      {screen === 'round_result' && (
-        <RoundResultScreen
-          roundResult={roundResult}
-          scores={scores}
-          isCorrect={isCorrect}
-          guessedName={guessedName}
-          chorName={chorName}
-          wazirName={wazirName}
-          chorId={chorId}
-          round={currentRound}
-          totalRounds={totalRounds}
-          isHost={isHost}
-          myId={myId}
-          onNext={handleNextRound}
-        />
-      )}
-      {screen === 'game_over' && (
-        <GameOverScreen scores={finalScores} myId={myId} onPlayAgain={handlePlayAgain} />
-      )}
+      {screen === 'home' && <HomeScreen onCreateRoom={handleCreateRoom} onJoinRoom={handleJoinRoom} error={error} />}
+      {screen === 'lobby' && <LobbyScreen roomCode={roomCode} players={players} isHost={isHost} myId={myId} onStart={handleStartGame} error={error} roomSettings={roomSettings} />}
+      {screen === 'role_reveal' && <RoleRevealScreen myRole={myRole} round={round} totalRounds={roomSettings.totalRounds} badshahName={badshahName} myId={myId} badshahId={badshahId} countdown={countdown} secretChorName={secretChorName} enableMukhbir={roomSettings.enableMukhbir} />}
+      {screen === 'guessing' && <GuessingScreen myId={myId} wazirId={wazirId} wazirName={wazirName} badshahId={badshahId} players={guessingPlayers} myRole={myRole} onGuess={handleGuess} enableMukhbir={enableMukhbirRound} />}
+      {screen === 'round_result' && <RoundResultScreen roundResult={roundResult} scores={scores} isCorrect={isCorrect} guessedName={guessedName} chorName={chorName} wazirName={wazirName} mukhbirName={mukhbirName} round={currentRound} totalRounds={roomSettings.totalRounds} isHost={isHost} myId={myId} onNext={handleNextRound} />}
+      {screen === 'game_over' && <GameOverScreen scores={finalScores} myId={myId} onPlayAgain={handlePlayAgain} />}
     </div>
   );
 }
