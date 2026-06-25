@@ -1,0 +1,195 @@
+const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+const cors = require('cors');
+
+const app = express();
+app.use(cors());
+app.get('/health', (_, res) => res.json({ ok: true }));
+
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: { origin: '*', methods: ['GET', 'POST'] }
+});
+
+const rooms = {};
+const ROLES = ['Badshah', 'Wazir', 'Sipahi', 'Chor'];
+const TOTAL_ROUNDS = 10;
+const ROLE_REVEAL_DURATION = 6000; // ms before guessing phase
+
+function genCode() {
+  return Math.random().toString(36).substring(2, 8).toUpperCase();
+}
+
+function assignRoles(playerIds) {
+  const shuffled = [...playerIds].sort(() => Math.random() - 0.5);
+  const map = {};
+  shuffled.forEach((id, i) => { map[id] = ROLES[i]; });
+  return map;
+}
+
+function calcPoints(role, wazirCorrect) {
+  if (role === 'Badshah') return 100;
+  if (role === 'Sipahi') return 50;
+  if (role === 'Wazir') return wazirCorrect ? 70 : 0;
+  if (role === 'Chor') return wazirCorrect ? 0 : 70;
+  return 0;
+}
+
+function publicRoom(code) {
+  const r = rooms[code];
+  return {
+    code: r.code,
+    host: r.host,
+    players: r.players.map(p => ({ id: p.id, name: p.name, score: p.score })),
+    state: r.state,
+    round: r.round,
+    totalRounds: TOTAL_ROUNDS
+  };
+}
+
+function startRound(code) {
+  const r = rooms[code];
+  r.round++;
+  r.state = 'role_reveal';
+
+  const ids = r.players.map(p => p.id);
+  r.roles = assignRoles(ids);
+  r.wazirId = ids.find(id => r.roles[id] === 'Wazir');
+  r.badshahId = ids.find(id => r.roles[id] === 'Badshah');
+  r.sipahiId = ids.find(id => r.roles[id] === 'Sipahi');
+  r.chorId = ids.find(id => r.roles[id] === 'Chor');
+
+  const badshahName = r.players.find(p => p.id === r.badshahId)?.name;
+
+  r.players.forEach(p => {
+    io.to(p.id).emit('role_assigned', {
+      role: r.roles[p.id],
+      round: r.round,
+      totalRounds: TOTAL_ROUNDS,
+      players: r.players.map(pl => ({ id: pl.id, name: pl.name, score: pl.score })),
+      badshahId: r.badshahId,
+      badshahName,
+      wazirId: r.wazirId,
+    });
+  });
+
+  setTimeout(() => {
+    if (!rooms[code] || r.state !== 'role_reveal') return;
+    r.state = 'guessing';
+    const wazirName = r.players.find(p => p.id === r.wazirId)?.name;
+    io.to(code).emit('guessing_phase', {
+      wazirId: r.wazirId,
+      wazirName,
+      badshahId: r.badshahId,
+      players: r.players.map(p => ({ id: p.id, name: p.name }))
+    });
+  }, ROLE_REVEAL_DURATION);
+}
+
+io.on('connection', (socket) => {
+  console.log('+ connect', socket.id);
+
+  socket.on('create_room', ({ name }) => {
+    const code = genCode();
+    rooms[code] = {
+      code,
+      host: socket.id,
+      players: [{ id: socket.id, name, score: 0 }],
+      state: 'waiting',
+      round: 0,
+      roles: {},
+      wazirId: null, badshahId: null, sipahiId: null, chorId: null
+    };
+    socket.join(code);
+    socket.data.code = code;
+    socket.emit('room_created', { code });
+    io.to(code).emit('room_update', publicRoom(code));
+  });
+
+  socket.on('join_room', ({ name, code }) => {
+    const r = rooms[code];
+    if (!r) return socket.emit('error', { message: 'Room not found' });
+    if (r.players.length >= 4) return socket.emit('error', { message: 'Room is full' });
+    if (r.state !== 'waiting') return socket.emit('error', { message: 'Game already started' });
+
+    r.players.push({ id: socket.id, name, score: 0 });
+    socket.join(code);
+    socket.data.code = code;
+    socket.emit('room_joined', { code });
+    io.to(code).emit('room_update', publicRoom(code));
+  });
+
+  socket.on('start_game', ({ code }) => {
+    const r = rooms[code];
+    if (!r || r.host !== socket.id) return;
+    if (r.players.length !== 4) return socket.emit('error', { message: 'Need exactly 4 players' });
+    startRound(code);
+  });
+
+  socket.on('wazir_guess', ({ code, guessId }) => {
+    const r = rooms[code];
+    if (!r || r.state !== 'guessing' || r.wazirId !== socket.id) return;
+
+    const isCorrect = guessId === r.chorId;
+    const roundResult = {};
+
+    r.players.forEach(p => {
+      const pts = calcPoints(r.roles[p.id], isCorrect);
+      p.score += pts;
+      roundResult[p.id] = { role: r.roles[p.id], pts, name: p.name };
+    });
+
+    r.state = 'round_result';
+
+    io.to(code).emit('round_result', {
+      roundResult,
+      scores: r.players.map(p => ({ id: p.id, name: p.name, score: p.score })),
+      isCorrect,
+      guessedName: r.players.find(p => p.id === guessId)?.name,
+      chorName: r.players.find(p => p.id === r.chorId)?.name,
+      wazirName: r.players.find(p => p.id === r.wazirId)?.name,
+      chorId: r.chorId,
+      round: r.round,
+      totalRounds: TOTAL_ROUNDS
+    });
+  });
+
+  socket.on('next_round', ({ code }) => {
+    const r = rooms[code];
+    if (!r || r.host !== socket.id || r.state !== 'round_result') return;
+
+    if (r.round >= TOTAL_ROUNDS) {
+      r.state = 'game_over';
+      io.to(code).emit('game_over', {
+        scores: [...r.players].sort((a, b) => b.score - a.score)
+          .map(p => ({ id: p.id, name: p.name, score: p.score }))
+      });
+    } else {
+      startRound(code);
+    }
+  });
+
+  socket.on('disconnect', () => {
+    const code = socket.data.code;
+    if (!code || !rooms[code]) return;
+    const r = rooms[code];
+    const player = r.players.find(p => p.id === socket.id);
+    if (!player) return;
+
+    const name = player.name;
+    r.players = r.players.filter(p => p.id !== socket.id);
+    console.log('- disconnect', name, 'from', code);
+
+    if (r.players.length === 0) {
+      delete rooms[code];
+      return;
+    }
+    if (r.host === socket.id) r.host = r.players[0].id;
+    io.to(code).emit('room_update', publicRoom(code));
+    io.to(code).emit('player_left', { name });
+  });
+});
+
+const PORT = process.env.PORT || 3001;
+server.listen(PORT, () => console.log(`Badshah server on :${PORT}`));
