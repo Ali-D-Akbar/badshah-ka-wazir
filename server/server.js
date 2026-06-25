@@ -24,18 +24,25 @@ const io = new Server(server, {
 });
 
 const rooms = {};
-const ROLES = ['Badshah', 'Wazir', 'Sipahi', 'Chor'];
 const TOTAL_ROUNDS = 10;
-const ROLE_REVEAL_DURATION = 6000; // ms before guessing phase
+const ROLE_REVEAL_DURATION = 6000;
+const MIN_PLAYERS = 4;
+const MAX_PLAYERS = 8;
 
 function genCode() {
   return Math.random().toString(36).substring(2, 8).toUpperCase();
 }
 
+// 1 Badshah, 1 Wazir, 1 Chor, rest Sipahi
 function assignRoles(playerIds) {
   const shuffled = [...playerIds].sort(() => Math.random() - 0.5);
   const map = {};
-  shuffled.forEach((id, i) => { map[id] = ROLES[i]; });
+  shuffled.forEach((id, i) => {
+    if (i === 0) map[id] = 'Badshah';
+    else if (i === 1) map[id] = 'Wazir';
+    else if (i === shuffled.length - 1) map[id] = 'Chor';
+    else map[id] = 'Sipahi';
+  });
   return map;
 }
 
@@ -121,7 +128,7 @@ io.on('connection', (socket) => {
   socket.on('join_room', ({ name, code }) => {
     const r = rooms[code];
     if (!r) return socket.emit('error', { message: 'Room not found' });
-    if (r.players.length >= 4) return socket.emit('error', { message: 'Room is full' });
+    if (r.players.length >= MAX_PLAYERS) return socket.emit('error', { message: `Room is full (max ${MAX_PLAYERS})` });
     if (r.state !== 'waiting') return socket.emit('error', { message: 'Game already started' });
 
     r.players.push({ id: socket.id, name, score: 0 });
@@ -134,7 +141,7 @@ io.on('connection', (socket) => {
   socket.on('start_game', ({ code }) => {
     const r = rooms[code];
     if (!r || r.host !== socket.id) return;
-    if (r.players.length !== 4) return socket.emit('error', { message: 'Need exactly 4 players' });
+    if (r.players.length < MIN_PLAYERS) return socket.emit('error', { message: `Need at least ${MIN_PLAYERS} players` });
     startRound(code);
   });
 

@@ -8,6 +8,9 @@ const ROLE_CONFIG = {
   Chor:    { emoji: '🦹', color: 'text-red-400',    bg: 'bg-red-900/40',    border: 'border-red-600',    urdu: 'چور',    pts: '0 if caught, 70 if not' },
 };
 
+const MIN_PLAYERS = 4;
+const MAX_PLAYERS = 8;
+
 function Countdown({ seconds }) {
   return (
     <div className="flex items-center gap-2 text-sm text-gray-400">
@@ -109,7 +112,7 @@ function LobbyScreen({ roomCode, players, isHost, myId, onStart, error }) {
       </div>
 
       <div className="card w-full p-4">
-        <p className="text-gray-400 text-xs uppercase tracking-widest mb-3">Players ({players.length}/4)</p>
+        <p className="text-gray-400 text-xs uppercase tracking-widest mb-3">Players ({players.length}/{MAX_PLAYERS})</p>
         <div className="flex flex-col gap-2">
           {players.map((p, i) => (
             <div key={p.id} className="flex items-center gap-3">
@@ -120,7 +123,7 @@ function LobbyScreen({ roomCode, players, isHost, myId, onStart, error }) {
               {i === 0 && <span className="ml-auto text-xs text-gray-500">host</span>}
             </div>
           ))}
-          {Array.from({ length: 4 - players.length }).map((_, i) => (
+          {players.length < MIN_PLAYERS && Array.from({ length: MIN_PLAYERS - players.length }).map((_, i) => (
             <div key={i} className="flex items-center gap-3 opacity-30">
               <span className="text-gray-500 w-4 text-sm">{players.length + i + 1}.</span>
               <span className="text-gray-500 italic text-sm">waiting…</span>
@@ -129,15 +132,17 @@ function LobbyScreen({ roomCode, players, isHost, myId, onStart, error }) {
         </div>
       </div>
 
+      <p className="text-gray-500 text-xs text-center">{MIN_PLAYERS}–{MAX_PLAYERS} players · extra players become Sipahi ⚔️</p>
+
       {error && <p className="text-red-400 text-sm">{error}</p>}
 
       {isHost ? (
         <button
           className="btn-gold w-full text-lg pulse-gold"
-          disabled={players.length !== 4}
+          disabled={players.length < MIN_PLAYERS}
           onClick={onStart}
         >
-          {players.length === 4 ? 'Start Game 🎮' : `Waiting for ${4 - players.length} more…`}
+          {players.length >= MIN_PLAYERS ? `Start Game 🎮 (${players.length} players)` : `Need ${MIN_PLAYERS - players.length} more…`}
         </button>
       ) : (
         <p className="text-gray-400 text-sm">Waiting for host to start…</p>
@@ -187,7 +192,7 @@ function RoleRevealScreen({ myRole, round, totalRounds, badshahName, myId, badsh
       {myRole === 'Wazir' && (
         <div className="card w-full p-4 text-center border border-green-800">
           <p className="text-green-400 font-semibold text-sm">You are the Wazir!</p>
-          <p className="text-gray-400 text-xs mt-1">Soon you must guess who is the Chor from the other players.</p>
+          <p className="text-gray-400 text-xs mt-1">You must pick who is the Chor from the non-Badshah players.</p>
         </div>
       )}
 
@@ -218,7 +223,7 @@ function GuessingScreen({ myId, wazirId, wazirName, badshahId, players, myRole, 
         </div>
 
         <p className="text-gray-400 text-sm text-center">
-          Pick from the 2 unknown players. One is Sipahi, one is Chor.
+          Pick who you think is the Chor. Others are Sipahi.
         </p>
 
         <div className="flex flex-col gap-3 w-full">
