@@ -219,6 +219,20 @@ io.on('connection', (socket) => {
     io.to(code).emit('chat_message', msg);
   });
 
+  socket.on('replay_room', ({ code }) => {
+    const r = rooms[code];
+    if (!r || r.host !== socket.id) return;
+    if (r.guessingTimeout) { clearTimeout(r.guessingTimeout); r.guessingTimeout = null; }
+    r.state = 'waiting';
+    r.round = 0;
+    r.roles = {};
+    r.wazirId = null; r.badshahId = null; r.chorId = null; r.mukhbirId = null;
+    r.players.forEach(p => { p.score = 0; });
+    r.chat = [];
+    io.to(code).emit('room_replay');
+    io.to(code).emit('room_update', publicRoom(code));
+  });
+
   socket.on('next_round', ({ code }) => {
     const r = rooms[code];
     if (!r || r.host !== socket.id || r.state !== 'round_result') return;

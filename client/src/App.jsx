@@ -494,7 +494,7 @@ function RoundResultScreen({ roundResult, scores, isCorrect, timedOut, guessedNa
 }
 
 // ─── Game Over ─────────────────────────────────────────────────────────────────
-function GameOverScreen({ scores, myId, onPlayAgain }) {
+function GameOverScreen({ scores, myId, isHost, onPlayAgain, onLeave }) {
   const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟', '🔟', '🔟'];
   return (
     <div className="fade-in flex flex-col items-center gap-6 py-12 px-4 max-w-sm mx-auto pb-24">
@@ -513,7 +513,12 @@ function GameOverScreen({ scores, myId, onPlayAgain }) {
           </div>
         ))}
       </div>
-      <button className="btn-gold w-full text-lg" onClick={onPlayAgain}>Play Again 🔄</button>
+      {isHost ? (
+        <button className="btn-gold w-full text-lg" onClick={onPlayAgain}>Play Again with same group 🔄</button>
+      ) : (
+        <p className="text-gray-400 text-sm">Waiting for host to restart…</p>
+      )}
+      <button className="text-gray-500 text-sm underline" onClick={onLeave}>Leave room</button>
     </div>
   );
 }
@@ -654,9 +659,14 @@ export default function App() {
 
     socket.on('game_over', ({ scores }) => { setFinalScores(scores); setScreen('game_over'); });
 
+    socket.on('room_replay', () => {
+      setChatMessages([]); setMyRole(''); setRound(0); setError('');
+      setScreen('lobby');
+    });
+
     return () => {
       ['connect','disconnect','room_created','room_joined','room_update','error','player_left',
-       'chat_message','role_assigned','guessing_phase','round_result','game_over'].forEach(e => socket.off(e));
+       'chat_message','role_assigned','guessing_phase','round_result','game_over','room_replay'].forEach(e => socket.off(e));
       socket.disconnect();
       clearInterval(countdownRef.current);
       clearTimeout(guessingFallbackRef.current);
@@ -675,7 +685,8 @@ export default function App() {
     setDisconnected(false); setScreen('home'); setRoomCode(''); setPlayers([]);
     setIsHost(false); setMyRole(''); setRound(0); setError(''); setChatMessages([]);
   }
-  function handlePlayAgain() { handleGoHome(); }
+  function handlePlayAgain() { socket.emit('replay_room', { code: roomCode }); }
+  function handleLeaveRoom() { handleGoHome(); }
 
   return (
     <div className="min-h-screen">
@@ -686,7 +697,7 @@ export default function App() {
         {screen === 'role_reveal' && <RoleRevealScreen myRole={myRole} round={round} totalRounds={roomSettings.totalRounds} badshahName={badshahName} wazirName={wazirName} myId={myId} badshahId={badshahId} wazirId={wazirId} countdown={countdown} secretChorName={secretChorName} enableMukhbir={roomSettings.enableMukhbir} guessingTimer={roomSettings.guessingTimer} />}
         {screen === 'guessing' && <GuessingScreen myId={myId} wazirId={wazirId} wazirName={wazirName} badshahId={badshahId} players={guessingPlayers} myRole={myRole} onGuess={handleGuess} enableMukhbir={enableMukhbirRound} guessingTimer={roundGuessingTimer} />}
         {screen === 'round_result' && <RoundResultScreen roundResult={roundResult} scores={scores} isCorrect={isCorrect} timedOut={timedOut} guessedName={guessedName} chorName={chorName} wazirName={wazirName} mukhbirName={mukhbirName} round={currentRound} totalRounds={roomSettings.totalRounds} isHost={isHost} myId={myId} onNext={handleNextRound} />}
-        {screen === 'game_over' && <GameOverScreen scores={finalScores} myId={myId} onPlayAgain={handlePlayAgain} />}
+        {screen === 'game_over' && <GameOverScreen scores={finalScores} myId={myId} isHost={isHost} onPlayAgain={handlePlayAgain} onLeave={handleLeaveRoom} />}
       </div>
 
       {inGame && !disconnected && (
